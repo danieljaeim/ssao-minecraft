@@ -1,0 +1,396 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<head>
+    <style>
+        div.padded {
+            padding-top: 0px;
+            padding-right: 100px;
+            padding-bottom: 0.25in;
+            padding-left: 100px;
+        }
+
+        p {
+            font-size: 28px;
+        }
+    </style>
+    <title>Your Name | CS 184</title>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8" />
+    <link rel="stylesheet" type="text/css" href="style.css" media="screen" />
+</head>
+
+<body>
+    <br />
+    <table style="width=100%">
+        <tr>
+            <td align="middle">
+                <img src="images/withoutssao.png" width="525px" />
+                <figcaption align="middle"> Minecraft without ambient lighting calculations </figcaption>
+            </td>
+            <td align="middle">
+                <img src="images/ssaomap.png" width="525px" />
+                <figcaption align="middle"> SSAO Texture calculated in real-time </figcaption>
+            </td>
+            <td align="middle">
+                <img src="images/withssao.png" width="525px" />
+                <figcaption align="middle"> Minecraft Color-Buffer alongside SSAO Mapping </figcaption>
+            </td>
+        </tr>
+    </table>
+    <h1 align="middle">Screen Space Ambient Occlusion</h1>
+    <h2 align="middle">by Daniel Jae Im</h2>
+
+
+    <div class="padded">
+        <p> In this project I implemented screen space ambient occlusion, a form of ambient occlusion that approximates
+            the amount of ambient light
+            on screen using nothing more than the fragments rendered on screen, a depth buffer and a normal buffer. This
+            form ambient occlusion algorithm
+            is fast enough for run-time, and allows us to produce realistic ambient lighting in a
+            realtime game such as Minecraft.
+        </p>
+        <o>
+            <p>
+                After finishing these features, I have a much better grasp of Minecraft's deferred shader system and
+                OpenGLSL. This project opened my eyes
+                to the steep learning curve for minecraft shaders, but was overall a terrifically fun project,
+                and I highly recommend it to anybody as a
+                first foray into minecraft's shading system.
+            <p></p>
+
+            <table style="width=100%">
+                <tr>
+                    <td align="middle">
+                        <img src="images/corner.jpeg" width="700px" />
+                        <figcaption align="center"> Ambient light in real life. </figcaption>
+                    </td>
+                    <td align="middle">
+                        <img src="images/corner2.jpg" width="700px" height="470px" />
+                        <figcaption align="center"> Ambient light in direct light. </figcaption>
+                    </td>
+                </tr>
+            </table>
+
+
+            <h2 align="middle">Part 1: Understanding Screen Space Ambient Occlusion </h2>
+            <p> The first step to understanding screen-space ambient occlusion is to realize that it is one of many
+                ambient
+                occlusion algorithms that attempt to calculate a key feature of realistic lighting, occlusion near
+                corners.
+            </p>
+            <o></o>
+            <p>
+                This situation called ambient occlusion (or occluded ambient lighting) occurs near creases, corners, and
+                points on
+                a surface that closely lie against other immediate surfaces. Essentially tight places not in direct
+                lighting have
+                a lower probability for ambient light to bounce within it, than flat surfaces lying directly out towards
+                a light source.
+
+            </p>
+
+            <p>
+                Screen Space Ambient Occlusion computes an occlusion factor for each point on a surface and incorporates
+                this into
+                the lighting model, usually by modulating the ambient term such that more occlusion = less light, less
+                occlusion = more light.
+                Offline renderers typically cast a ridiculous number of rays in random hemispheric sampling around every
+                point on a
+                surface to calculate the amount of occluding geometry around a point. This sort of offline calculation
+                typically
+                takes a computationally heavy approach to calculating the proportion of light
+                that bounces from a source to a point to estimate lighting, but this is not practical for real-time
+                rendering, where the camera moves
+                and light sources might shift frequently. Instead screen-space ambient occlusion attempts to use an
+                estimate of the scene geometry (the pixel depth buffer) and calculates the occlusion factor entirely in
+                screen-space,
+                without ever translating a position into world space (i.e a physically rendered raytracing model ).
+            </p>
+            <o></o>
+            <table style="width=100%">
+                <tr>
+                    <td align="middle" style="left=50%">
+                        <img src="images/sample-hemisphere.jpg" width="800px" align="middle" />
+                        <figcaption align="middle"> We sample in a sphere around a specific fragment on our screen.
+                        </figcaption>
+                    </td>
+                </tr>
+            </table>
+            <p>
+                This method was invented by Crytek in 2007, for their eponymous title Crysis, by Vladimir Kajalin. Props
+                to him.
+            </p>
+            <p>
+                The first idea is to sample a point in a sphere around each fragment's position in screen-space.
+                Then we take that unit sample vector projected from the sample point's position and calculate its
+                associated depth in the depth buffer.
+                We then check to see whether the sample point's actual position lies behind the sampled-depth, to see if
+                that sample point is being occluded.
+                If the sample point is behind the sampled-depth, then that sample contributes to the occlusion factor.
+                Otherwise, the sample is unoccluded
+                and proves the surface point has some degree of open space where ambient light might travel. This method
+                works around
+                the idea that points on a geometry's surface where more of the sampling sphere's solid angles
+                are occluded by other geometry, are expected to contribute more to a point's occlusion factor. Thus, we
+                have a way of estimating
+                a surface point's ambient occlusion through nothing more than its screen view position, and the depth of
+                its associated fragment, all with a spherical
+                projection and some clever thinking.
+            </p>
+            <o></o>
+            <p>
+                Once we realize that all we need are uniform sampling around a sphere, we see that performance is
+                directly tied to the number of samples we commit
+                to our sphere. However, sampling around a sphere creates too many samples beneath the surface of the
+                point, that contribute negatively to the ambient occlusion.
+                Thus, we can narrow the sphere into a hemisphere by reflecting our uniform distribution of points along
+                the sphere, against the fragment's normal to produce
+                a more realistic ambient occlusion system.
+            </p>
+
+            <table style="width=100%">
+                <tr>
+                    <td align="middle">
+                        <img src="images/normal-hemisphere.jpg" width="800px" />
+                        <figcaption align="middle"> Snell's approximation </figcaption>
+                    </td>
+                </tr>
+            </table>
+
+            <p>
+                Translating a uniform distribution in the X and Y axis into a hemisphere creates sample points that lie
+                exclusively on the surface of the hemisphere.
+                We want to vary the degrees of our sample-point's magnitudes, so we first calculate our distribution of
+                points in polar coordiantes before translating to
+                cartesian coordinates. This allows us to avoid having to use lerping between our random sampling
+                function values, which produces strange artifacts.
+
+                I kept encountering problems related to incorrect samples that far extended the radius of my hemisphere.
+                TA Bob reconciled this issue by pointing out there translating a uniform distribution of points on a
+                sphere is more complicated that simply
+                applying two uniform distributions in the X and Y. A safer approach is the simply use uniform polar
+                coordinates first then translate to cartesian coordinates.
+
+                Thanks Bob.
+            </p>
+
+            <table style="width=100%">
+                <tr>
+                    <td align="middle">
+                        <img src="images/sphere-surface.png" width="600px" />
+                        <figcaption align="middle"> What we get from sampling uniformly along the hemisphere's boundary
+                        </figcaption>
+                    </td>
+                    <td align="middle">
+                        <img src="images/sphere-condences.png" width="600px" />
+                        <figcaption align="middle"> Sampling in polar coordinates then translating to cartesian
+                        </figcaption>
+                    </td>
+                </tr>
+                <tr>
+                    <td align="middle">
+                        <img src="images/polar-coordinates.png" width="600px" />
+                        <figcaption align="middle"> This is the correct way, trust me </figcaption>
+                    </td>
+                </tr>
+            </table>
+            <p>
+                Once I have my ambient occlusion value from my iterations, I simply divide the value by
+                my sample-size value, and we get an ambient occlusion factor that we can use to directly
+                overlay onto our geometry to see how ambient lighting can be estimated with SSAO.
+            </p>
+            </q></p>
+
+            <h2 align="middle">Journey and Process: Minecraft's shading system </h2>
+            <table style="width=100%">
+                <tr>
+                    <td align="middle">
+                        <img src="images/deferred.jpeg" width="550px" />
+                        <figcaption align="middle"> Normal Map of fragments in View/Camera Space </figcaption>
+                    </td>
+                    <td align="middle">
+                        <img src="images/deferredpipeline.png" width="550px" />
+                        <figcaption align="middle"> Normal Map of fragments in View/Camera Space </figcaption>
+                    </td>
+                </tr>
+            </table>
+            <p>
+                I used Optifine to inject shaders into Minecraft, which was built in an old version of GLSL 1.2.
+                Minecraft uses a deferred shading system where different types of elements on screen have their own
+                respective buffer that ultimately gets piped into a deferred shader for post-processing and
+                ultimately rendering. I did all of my calculations for SSAO within my deferred fragment shader, but
+                required the depth buffer and the normal map from some specific vertex shaders.
+                Namely I got the normal mapping of the fragments on the screen from the gbuffer_terrain vertex shader,
+                and the depth buffer from the deferred vertex shader. The only hiccup is that the depth buffer
+                gets cleared to a white color before rendering, so I was unable to visualize it throughout my process.
+                But we can calculate the depth of a fragment on the screen, by sampling a provided sampler called
+                depthtex0, which holds all the depth information for the fragments on screen.
+
+            <table style="width=100%">
+                <tr>
+                    <td align="middle">
+                        <img src="images/normal_map.png" width="550px" />
+                        <figcaption align="middle"> Normal Map of fragments in View/Camera Space </figcaption>
+                    </td>
+                    <td align="middle">
+                        <img src="images/texcoords.png" width="550px" />
+                        <figcaption align="middle"> Texture coordinates </figcaption>
+                    </td>
+                </tr>
+            </table>
+            <h2 align="middle"> Resources and Findings </h2>
+            <p>
+                A huge part of the learning process was going directly to the Minecraft ShaderLab discord
+                and asking around for advice regarding the minecraft shader pipeline. It was only through
+                asking the people on the discord did I discover where I could grab the inputs of the algorithm,
+                namely the normal mapping of the fragments on the screen, as well as the depth buffer. After
+                implementing
+                <a href="https://www.minecraftforum.net/forums/mapping-and-modding-java-edition/minecraft-mods/mods-discussion/2816908-shaderlabs-on-discord-where-all-of-us-shader-and">
+                    The Shader Labs Discord
+                </a>
+            </p>
+            <p>
+                SSAO, you can clearly see that the results on Minecraft are pretty nice to see in a subtle way that
+                really highlights how simple computation can make some realistic rendering results.
+            </p>
+            </p>
+            <p>
+                The outline I used the most was John Chapman's outline for how SSAO should be implemented
+                in a shader. I ended up not using his tbn matrix to translate samples from texture space to a normal-orient in 
+                view space, because I couldn't figure out how to store large-buffers in GLSL 1.2. Nonetheless, his general procedure I 
+                used for the most part in the algorithm. 
+
+                <a href="http://john-chapman-graphics.blogspot.com/2013/01/ssao-tutorial.html">
+                    John Chapman's Excellent outline for SSAO
+                </a>
+            </p>
+            <p>
+                I understood how GLSL 1.2's rendering pipeline worked, from vertex shader to fragment shader
+                through lighthouse3d's excellent tutorial on GLSL 1.2. There I understood how vertex shaders worked
+                alongside fragment shaders.
+
+                <a href="https://www.lighthouse3d.com/tutorials/glsl-12-tutorial/">
+                    Lighthouse3d GLSL Tutorial Page
+                </a>
+            </p>
+            <o></o>
+            <p>
+                Here are some of the screenshots of my final results.
+            </p>
+            <table style="width=100%">
+                <tr>
+                    <td align="middle">
+                        <img src="images/hillnossao.png" width="550px" />
+                        <figcaption align="middle"> Minecraft without SSAO </figcaption>
+                    </td>
+                    <td align="middle">
+                        <img src="images/hillwithssao.png" width="550px" />
+                        <figcaption align="middle"> Minecraft with SSAO applied </figcaption>
+                    </td>
+                </tr>
+                <tr>
+                    <td align="middle">
+                        <img src="images/hillssaomap.png" width="550px" />
+                        <figcaption align="middle"> SSAO MAP </figcaption>
+                    </td>
+                </tr>
+            </table>
+            </p>
+            <p>
+                I can also vary the radius of the sample hemisphere to brighten and darken the SSAO map, 
+                though the direct effect on minecraft is not as immediately pronounced. This shows that 
+                a large radius for the hemisphere is not necessary for producing an good enough effect in realtime. 
+            </p>
+            <table style="width=100%">
+                <tr>
+                    <td align="middle">
+                        <img src="images/radius-3.png" width="550px" />
+                        <figcaption align="middle"> Sample radius of 3 </figcaption>
+                    </td>
+                    <td align="middle">
+                        <img src="images/radius-5.png" width="550px" />
+                        <figcaption align="middle"> Sample radius of 5 </figcaption>
+                    </td>
+                </tr>
+                <tr>
+                    <td align="middle">
+                        <img src="images/radius-8.png" width="550px" />
+                        <figcaption align="middle"> Sample radius of 8 </figcaption>
+                    </td>
+                    <td align="middle">
+                        <img src="images/radius-10.png" width="550px" />
+                        <figcaption align="middle"> Sample radius of 10 </figcaption>
+                    </td>
+                </tr>
+            </table>
+
+            <p>
+                The effect that I show below and in the other screenshots of the final result are all taken
+                at around radius 6.5, though that is more for my ease of use than anyone else's.
+            </p>
+
+            <table style="width=100%">
+                <tr>
+                    <td align="middle">
+                        <img src="images/treenossao.png" width="650px" />
+                        <figcaption align="middle"> Treeline without SSAO </figcaption>
+                    </td>
+                    <td align="middle">
+                        <img src="images/treessao.png" width="650px" />
+                        <figcaption align="middle"> Treeline with SSAO </figcaption>
+                    </td>
+                </tr>
+                <tr>
+                    <td align="middle">
+                        <img src="images/treessaomap.png" width="650px" />
+                        <figcaption align="middle"> Map of treeline ambient occlusion </figcaption>
+                    </td>
+                </tr>
+            </table>
+            <table style="width=100%">
+                <tr>
+                    <td align="middle">
+                        <img src="images/bricknossao.png" width="650px" />
+                        <figcaption align="middle"> Bricks with no SSAO </figcaption>
+                    </td>
+                    <td align="middle">
+                        <img src="images/brickssaomap.png" width="650px" />
+                        <figcaption align="middle"> Brick SSAO map </figcaption>
+                    </td>
+                </tr>
+                <tr>
+                    <td align="middle">
+                        <img src="images/brickssao.png" width="650px" />
+                        <figcaption align="middle"> Bricks with SSAO applied </figcaption>
+                    </td>
+                </tr>
+            </table>
+            <table style="width=100%">
+                <tr>
+                    <td align="middle">
+                        <img src="images/mountainwithoutssao.png" width="1200px" />
+                        <figcaption align="middle"> Mountain with no SSAO </figcaption>
+                    </td>
+                </tr>
+                <tr>
+                    <td align="middle">
+                        <img src="images/mountainwithssao.png" width="1200px" />
+                        <figcaption align="middle"> Mountain with SSAO </figcaption>
+                    </td>
+                </tr>
+                <tr>
+                    <td align="middle">
+                        <img src="images/mountainssaomap.png" width="1200px" />
+                        <figcaption align="middle"> Mountain's SSAO Map </figcaption>
+                    </td>
+                </tr>
+            </table>
+    </div>
+
+
+    <div>
+
+    </div>
+</body>
+
+</html>
